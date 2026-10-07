@@ -9,7 +9,7 @@ Slack の投稿から「イベント一覧」と「メンバープロフィー�
 
 ---
 
-## 1. 3分で動かす
+## 1. 起動手順
 
 Python 3.11 以上が必要です。macOS か Linux で、このリポジトリのフォルダの中で実行します。
 
@@ -25,7 +25,7 @@ VERBINDEN_ENV=test .venv/bin/python -m uvicorn verbinden.api:app --host 0.0.0.0 
 
 ---
 
-## 2. API 早見表（画面を作る人向け）
+## 2. API の一覧（画面を実装する人向け）
 
 すべてのレスポンスは `{"success": true/false, "data": ..., "error": null または文字列}` の形です。
 
@@ -40,9 +40,9 @@ VERBINDEN_ENV=test .venv/bin/python -m uvicorn verbinden.api:app --host 0.0.0.0 
 
 更新の流れは「POST → status を2秒おきに見る → `succeeded` になったら GET し直す」です。1回は数秒〜数十秒で終わります。
 
-レスポンスの例（値は架空）:
+レスポンスの例を示します（値は架空です）。
 
-```json
+```jsonc
 // GET /api/members の data[0]
 { "id": "mem-U0000001", "name": "テスト太郎", "iconUrl": "https://...",
   "status": { "emoji": "💻", "text": "作業中", "presence": "active" },
@@ -59,7 +59,7 @@ VERBINDEN_ENV=test .venv/bin/python -m uvicorn verbinden.api:app --host 0.0.0.0 
   "start": { "date": "2026-10-08" }, "end": { "date": "2026-10-12" }, "description": "..." }
 ```
 
-画面側で押さえておくこと:
+画面を実装するときは、次の点に注意してください。
 
 - イベントは `id` で見分ける。件名（summary）は AI が書くので、更新のたびに言い回しが変わることがある。`id` は同じ投稿なら変わらない
 - イベントの形は Google Calendar API の Event 形式に合わせてある。FullCalendar などのカレンダー部品にほぼそのまま渡せる。`location` は場所が分からないときキーごとない
@@ -67,7 +67,7 @@ VERBINDEN_ENV=test .venv/bin/python -m uvicorn verbinden.api:app --host 0.0.0.0 
 - `iconUrl` と `intro` は null のことがある
 - 更新の POST は 202 / 409（実行中）/ 429（10分以内。`Retry-After` ヘッダーで残り秒数）を返す。詳しくは §6.2
 
-ブラウザからの更新の例:
+ブラウザから更新を呼ぶ例を示します。
 
 ```js
 const apiBase = "http://APIのPCのアドレス:8000";
@@ -93,9 +93,9 @@ async function refresh(target) {            // target は "events" か "members"
 
 ---
 
-## 3. 動かす環境を用意する人向け
+## 3. 実行環境の準備（環境を用意する人向け）
 
-### 3.1 必要なもの
+### 3.1 必要な環境
 
 | 項目 | 内容 |
 |---|---|
@@ -106,7 +106,7 @@ async function refresh(target) {            // target は "events" か "members"
 | 書き込み先 | `data/`（取得した投稿と結果を保存する。消えると作り直しが必要） |
 | プロセス数 | API は1プロセスで動かす（更新の状態と10分制限をメモリに持つため。`--workers` を増やさない） |
 
-### 3.2 設定は3か所
+### 3.2 設定する場所
 
 | 場所 | 何を書くか | 例 |
 |---|---|---|
@@ -118,11 +118,11 @@ async function refresh(target) {            // target は "events" か "members"
 
 秘密情報は `.env.{env}` の代わりに環境変数で渡しても動きます。`.env.{env}` にあるキーはそちらが優先され、`.env.{env}` にない・空のキーだけ環境変数を使います。
 
-### 3.3 インストールの注意
+### 3.3 インストール時の注意
 
 設定ファイルと `data/` の場所は「パッケージのフォルダの2つ上（このリポジトリの直下）」として探します。そのため、必ずリポジトリを丸ごと置いて `pip install -e .`（編集可能インストール）で入れてください。`pip install .` で site-packages に入れると、`config/` が見つからずに起動しません。
 
-### 3.4 Docker で動かす例（未検証）
+### 3.4 Docker での実行例（未検証）
 
 開発では Docker を使っていないので、次は動作を確かめていない例です。
 
@@ -158,7 +158,7 @@ docker run --rm -v "$PWD/.env.test:/app/.env.test:ro" -v "$PWD/data:/app/data" \
 
 コンテナの中では `--host 0.0.0.0` が必須です。`data/` は API とバッチで同じものを共有してください（ロックファイル `data/{env}/.batch.lock` もここに置かれます）。
 
-### 3.5 別の PC の画面から呼ぶとき
+### 3.5 別の PC の画面から呼ぶ場合
 
 - API は `--host 0.0.0.0` で起動する（`127.0.0.1` だとその PC からしか呼べない）
 - 画面からは `http://APIのPCのLANアドレス:8000` を呼ぶ
@@ -167,7 +167,7 @@ docker run --rm -v "$PWD/.env.test:/app/.env.test:ro" -v "$PWD/data:/app/data" \
 
 ---
 
-## 4. プログラムの地図（直す人向け）
+## 4. ファイルの役割（プログラムを直す人向け）
 
 `src/verbinden/` の中身です。「純粋」は入力から出力を計算するだけのファイルで、Slack・AI・ファイルを触りません。単体テストがしやすいので、規則を変えるときはまずここを見ます。
 
@@ -189,7 +189,7 @@ docker run --rm -v "$PWD/.env.test:/app/.env.test:ro" -v "$PWD/data:/app/data" \
 | `stats.py` | 純粋 | 時間帯ごとの投稿数を数える |
 | `present.py` | 純粋 | API で返す1人分の形を組み立てる |
 
-### よくある変更と、直す場所
+### 変更内容ごとの修正箇所
 
 | やりたいこと | 直す場所 |
 |---|---|
@@ -242,7 +242,7 @@ API はリクエストのたびに `data/out/{env}/` を読み、メンバーに
 
 `output.members` を変えたときは `--from-stage output` で作り直し、API を起動し直します。
 
-### 6.2 更新 API
+### 6.2 更新 API の応答
 
 | 返り値 | 意味 | 画面での扱い |
 |---|---|---|
@@ -257,7 +257,7 @@ API はリクエストのたびに `data/out/{env}/` を読み、メンバーに
 - 状態と10分制限はメモリに持つ。API を起動し直すとリセットされる
 - 認証はない。同じネットワークの誰でも呼べるので、10分の制限で AI の無料枠を守っている
 
-### 6.3 設定の全項目（`config/config.{env}.yaml`）
+### 6.3 設定項目の一覧（`config/config.{env}.yaml`）
 
 | 項目 | 例 | 意味 |
 |---|---|---|
@@ -276,7 +276,7 @@ API はリクエストのたびに `data/out/{env}/` を読み、メンバーに
 
 設定に間違いがあると、起動時に「どの項目がなぜ違うか」を表示して止まります。
 
-`.env.{env}` のキー:
+`.env.{env}` に書くキーは次のとおりです。
 
 | キー | 必須 | 内容 |
 |---|---|---|
@@ -288,7 +288,7 @@ API はリクエストのたびに `data/out/{env}/` を読み、メンバーに
 
 Bot Token Scopes に `channels:history`・`channels:read`・`users:read` の3つを付けてワークスペースにインストールし、Bot を対象のチャンネルに `/invite` します。Socket Mode やイベントの購読（Event Subscriptions）は使いません。
 
-### 6.5 処理の規則
+### 6.5 抽出の規則
 
 - 画像・ファイルの中身は読まない。画像付き投稿の本文は使う
 - 日付の分からない告知はイベントにしない。「来週水曜」「明日」は投稿日を基準に日付へ直す
@@ -318,7 +318,7 @@ Bot Token Scopes に `channels:history`・`channels:read`・`users:read` の3つ
 
 偽の Slack と偽の AI を使うので、トークンなしで動きます。カバレッジが80%を下回ると失敗します。
 
-### 6.8 困ったとき
+### 6.8 よくある問題と確認箇所
 
 | 症状 | 確かめること |
 |---|---|
@@ -331,6 +331,6 @@ Bot Token Scopes に `channels:history`・`channels:read`・`users:read` の3つ
 | 更新が 429 | 10分待つ（API を起動し直すとリセットされる） |
 | AI が 404 / 503 | モデル名が使えるか（提供が終わることがある）。503 は混雑なので時間をおく |
 
-### 6.9 AI に送る内容について
+### 6.9 AI に送る内容の扱い
 
 Gemini API の無料枠では、送った内容が Google の製品改善に使われ、人が確認する場合があります（[Gemini API 利用規約](https://ai.google.dev/gemini-api/terms)）。実在の人の投稿を送る場合は、Slack の管理者と相談するか、`llm.provider: ollama` で手元の AI を使ってください。
