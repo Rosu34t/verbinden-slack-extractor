@@ -1,0 +1,1 @@
+"""Slack extraction for Verbinden."""

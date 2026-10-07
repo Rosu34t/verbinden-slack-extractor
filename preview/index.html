@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API プレビュー</title>
+<!-- 動作確認用の使い捨て画面。本番のフロントではない。API の返す内容を目で見るためだけに使う。 -->
+<style>
+  :root {
+    --bg: #f6f4ef; --surface: #ffffff; --text: #1d1b18; --muted: #6b665d;
+    --line: #e4dfd5; --accent: #2f6f5e; --active: #2e9d5b; --away: #b3ab9d;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font-family: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 32px 16px 64px; }
+  header { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+  h1 { font-size: 28px; margin: 0; letter-spacing: .02em; }
+  h2 { font-size: 15px; color: var(--muted); font-weight: 600; margin: 40px 0 12px;
+       border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+  .meta { color: var(--muted); font-size: 13px; }
+  button { font: inherit; font-size: 13px; padding: 6px 14px; border-radius: 6px; cursor: pointer;
+           border: 1px solid var(--accent); background: var(--surface); color: var(--accent); }
+  button:hover { background: var(--accent); color: #fff; }
+  .members { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  .who { display: flex; align-items: center; gap: 12px; }
+  .avatar { position: relative; width: 48px; height: 48px; flex: none; }
+  .avatar img, .avatar .ph { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; background: var(--line); }
+  .dot { position: absolute; right: -1px; bottom: -1px; width: 14px; height: 14px; border-radius: 50%;
+         border: 2px solid var(--surface); background: var(--away); }
+  .dot.active { background: var(--active); }
+  .name { font-weight: 700; font-size: 16px; }
+  .status { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .intro { margin: 12px 0 0; font-size: 14px; line-height: 1.7; }
+  .events { list-style: none; margin: 0; padding: 0; background: var(--surface);
+            border: 1px solid var(--line); border-radius: 10px; }
+  .events li { display: grid; grid-template-columns: 150px 1fr; gap: 12px; padding: 12px 16px;
+               border-top: 1px solid var(--line); }
+  .events li:first-child { border-top: none; }
+  .when { font-variant-numeric: tabular-nums; font-size: 14px; color: var(--accent); font-weight: 600; }
+  .title { font-weight: 600; }
+  .sub { font-size: 13px; color: var(--muted); margin-top: 2px; white-space: pre-line; }
+  .error { background: #fbeaea; color: #8a1f1f; border-radius: 8px; padding: 12px 16px; font-size: 14px; }
+  details { margin-top: 40px; font-size: 13px; color: var(--muted); }
+  pre { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px; overflow: auto; }
+  .refresh { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .refresh p { flex-basis: 100%; margin: 4px 0 0; }
+  button:disabled { opacity: .5; cursor: wait; }
+  @media (max-width: 560px) { .events li { grid-template-columns: 1fr; gap: 4px; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>API プレビュー</h1>
+    <div><span class="meta" id="updated"></span> <button id="reload">再読み込み</button></div>
+  </header>
+
+  <h2>更新（POST /api/refresh/…）</h2>
+  <div class="refresh">
+    <button data-target="events">イベントを更新</button>
+    <button data-target="members">プロフィールを更新</button>
+    <p class="meta" id="refresh-state">「再読み込み」は保存済みの結果を読み直すだけ。新しい投稿を反映するには更新を押す（10分に1回まで）</p>
+  </div>
+
+  <h2>メンバー（GET /api/members）</h2>
+  <div id="members" class="members"></div>
+
+  <h2>イベント（GET /api/events）</h2>
+  <ul id="events" class="events"></ul>
+
+  <details><summary>生の JSON</summary><pre id="raw"></pre></details>
+</main>
+
+<script>
+const API_BASE = 'http://127.0.0.1:8000';
+const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text != null) node.textContent = text; // textContent なので投稿内容が HTML として実行されない
+  return node;
+}
+
+function errorBox(message) {
+  return el('div', 'error', message);
+}
+
+async function fetchApi(path) {
+  const response = await fetch(API_BASE + path);
+  const body = await response.json();
+  if (!body.success) throw new Error(body.error || `${path} が失敗しました（HTTP ${response.status}）`);
+  return body.data;
+}
+
+function renderMember(member) {
+  const card = el('article', 'card');
+  const who = el('div', 'who');
+  const avatar = el('div', 'avatar');
+  const isSafeIcon = typeof member.iconUrl === 'string' && member.iconUrl.startsWith('https://');
+  if (isSafeIcon) {
+    const img = el('img');
+    img.src = member.iconUrl;
+    img.alt = '';
+    avatar.append(img);
+  } else {
+    avatar.append(el('div', 'ph'));
+  }
+  const status = member.status || {};
+  avatar.append(el('span', status.presence === 'active' ? 'dot active' : 'dot'));
+
+  const text = el('div');
+  text.append(el('div', 'name', member.name ?? '(名前なし)'));
+  const statusLine = [status.emoji, status.text].filter(Boolean).join(' ');
+  text.append(el('div', 'status', statusLine || (status.presence === 'active' ? 'オンライン' : '離席中')));
+  who.append(avatar, text);
+  card.append(who);
+  if (member.intro) card.append(el('p', 'intro', member.intro));
+  return card;
+}
+
+function formatBound(bound, isEnd) {
+  if (bound.date) {
+    const day = new Date(bound.date + 'T00:00:00+09:00');
+    if (isEnd) day.setDate(day.getDate() - 1); // 終日の end は翌日なので、表示は前日に戻す
+    return `${day.getMonth() + 1}/${day.getDate()}(${WEEKDAYS[day.getDay()]})`;
+  }
+  const t = new Date(bound.dateTime);
+  const hm = t.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tokyo' });
+  return `${t.getMonth() + 1}/${t.getDate()}(${WEEKDAYS[t.getDay()]}) ${hm}`;
+}
+
+function renderEvent(event) {
+  const li = el('li');
+  const start = formatBound(event.start, false);
+  const end = formatBound(event.end, true);
+  const isAllDay = Boolean(event.start.date);
+  const sameDay = start.split(' ')[0] === end.split(' ')[0];
+  let when = start;
+  if (isAllDay && !sameDay) when = `${start} 〜 ${end}`;
+  if (!isAllDay) when = sameDay ? `${start}〜${end.split(' ')[1]}` : `${start} 〜 ${end}`;
+  li.append(el('div', 'when', isAllDay ? `${when}（終日）` : when));
+  const body = el('div');
+  body.append(el('div', 'title', event.summary));
+  const sub = [event.location ? `📍 ${event.location}` : null, event.description].filter(Boolean).join('\n');
+  if (sub) body.append(el('div', 'sub', sub));
+  li.append(body);
+  return li;
+}
+
+async function load() {
+  const membersBox = document.getElementById('members');
+  const eventsBox = document.getElementById('events');
+  const raw = {};
+  membersBox.replaceChildren();
+  eventsBox.replaceChildren();
+
+  try {
+    const members = await fetchApi('/api/members');
+    raw.members = members;
+    membersBox.replaceChildren(...members.map(renderMember));
+    if (members.length === 0) membersBox.append(el('p', 'meta', 'メンバーがいません'));
+  } catch (error) {
+    membersBox.append(errorBox(`メンバーを取得できません: ${error.message}（API は起動していますか？）`));
+  }
+
+  try {
+    const events = await fetchApi('/api/events');
+    raw.events = events;
+    eventsBox.replaceChildren(...events.map(renderEvent));
+    if (events.length === 0) eventsBox.append(el('li', 'meta', 'イベントがありません'));
+  } catch (error) {
+    eventsBox.replaceWith(Object.assign(errorBox(`イベントを取得できません: ${error.message}`), { id: 'events' }));
+  }
+
+  document.getElementById('raw').textContent = JSON.stringify(raw, null, 2);
+  document.getElementById('updated').textContent =
+    `取得: ${new Date().toLocaleTimeString('ja-JP')}`;
+}
+
+const REFRESH_LABELS = { events: 'イベント', members: 'プロフィール' };
+const POLL_INTERVAL_MS = 2000;
+const POLL_LIMIT_MS = 180000;
+
+function setRefreshState(message) {
+  document.getElementById('refresh-state').textContent = message;
+}
+
+async function waitForRefresh(target) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < POLL_LIMIT_MS) {
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+    const status = (await fetchApi('/api/refresh/status'))[target];
+    if (status.state !== 'running') return status;
+  }
+  throw new Error('3分たっても終わりませんでした');
+}
+
+async function refresh(target) {
+  const label = REFRESH_LABELS[target];
+  const buttons = document.querySelectorAll('.refresh button');
+  buttons.forEach((button) => { button.disabled = true; });
+  try {
+    const response = await fetch(`${API_BASE}/api/refresh/${target}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const body = await response.json();
+    if (response.status === 429) {
+      const next = body.data?.nextAvailableAt ? new Date(body.data.nextAvailableAt).toLocaleTimeString('ja-JP') : '';
+      setRefreshState(`${label}: ${body.error}（あと${response.headers.get('Retry-After')}秒。${next} から押せます）`);
+      return;
+    }
+    if (response.status !== 202) { setRefreshState(`${label}: ${body.error}（HTTP ${response.status}）`); return; }
+    setRefreshState(`${label}を更新中…（Slack と AI を呼んでいます）`);
+    const status = await waitForRefresh(target);
+    setRefreshState(`${label}: ${status.message}（${new Date(status.finishedAt).toLocaleTimeString('ja-JP')}）`);
+    await load();
+  } catch (error) {
+    setRefreshState(`${label}の更新を確かめられません: ${error.message}`);
+  } finally {
+    buttons.forEach((button) => { button.disabled = false; });
+  }
+}
+
+document.querySelectorAll('.refresh button').forEach((button) => {
+  button.addEventListener('click', () => refresh(button.dataset.target));
+});
+document.getElementById('reload').addEventListener('click', load);
+load();
+</script>
+</body>
+</html>

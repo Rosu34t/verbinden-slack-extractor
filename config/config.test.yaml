@@ -1,0 +1,28 @@
+env: test
+slack:
+  eventChannel: general
+  timesChannels:
+    - channel: times-test1
+      owner: null
+    - channel: times-test2
+      owner: null
+  periodDays: 30
+llm:
+  provider: gemini
+  model: gemini-flash-lite-latest
+  maxRetries: 3
+  timeoutSeconds: 60
+api:
+  statusCacheSeconds: 60
+  refreshCooldownSeconds: 600
+  corsOrigins:
+    - http://localhost:3000
+output:
+  members:
+    id: id
+    name: name
+    iconUrl: iconUrl
+    status: status
+    intro: intro
+paths:
+  dataDir: data
